@@ -6,7 +6,7 @@ import mathutils
 from ..core import ckcmd
 
 IMPORT_MAPPING = {
-    # '': 'root_jnt',
+    'root_jnt': 'NPC_s_Root_s__ob_Root_cb_',
     'Spine01_jnt': 'Sabrecat__ob_pelv_cb_',
     'spine02_jnt': 'Sabrecat_Spine_ob_Spn0_cb_',
     'tail01_jnt': 'Sabrecat_Tail1_ob_Tal1_cb_',
@@ -131,22 +131,13 @@ def _bake_animation(skeleton):
     )
 
 
-def _create_constraint(constraint_type, parent_skeleton, parent_bone_name, child_skeleton, child_bone_name):
+def _create_constraint(constraint_type, parent_skeleton=None, parent_bone_name=None, child_skeleton=None, child_bone_name=None):
     bpy.context.view_layer.update()  # Ensure the dependency graph is updated
     control = child_skeleton.pose.bones[child_bone_name]
     constraint = control.constraints.new(type=constraint_type)
-    # constraint.name = "CopyTransformsFromControl"
     constraint.target = parent_skeleton
     constraint.subtarget = parent_bone_name
     return constraint
-
-
-def _copy_transforms_constraint(source_bone, target_skeleton, target_bone):
-    return _create_constraint('COPY_TRANSFORMS', source_bone, target_skeleton, target_bone)
-
-
-def _child_of_constraint(source_bone, target_skeleton, target_bone):
-    return _create_constraint('CHILD_OF', source_bone, target_skeleton, target_bone)
 
 
 def import_animation():
@@ -155,6 +146,7 @@ def import_animation():
     skeleton_hkx = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\character assets\skeleton_le.hkx'
     skeleton_nif = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\character assets\skeleton.nif'
     animation_fbx = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\animations\attack1.fbx'
+    animation_fbx = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\animations\runforward.fbx'
     control_rig = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\character assets\skeleton.blend'
     skeleton_fbx = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\character assets\skeleton.fbx'
 
@@ -171,7 +163,7 @@ def import_animation():
     animation_fbx_objects = import_fbx(animation_fbx, global_scale=100)
     to_cleanup.extend(animation_fbx_objects)
     animation_skeleton = find_skeleton(animation_fbx_objects)
-    return
+
     # Import Export Skeleton
     skeleton_fbx_objects = import_fbx(skeleton_fbx, global_scale=100)
     to_cleanup.extend(skeleton_fbx_objects)
@@ -189,27 +181,30 @@ def import_animation():
             continue
         control_name = control_bone.name
         bone_name = IMPORT_MAPPING[control_bone.name]
+        is_root = bone_name == 'NPC_s_Root_s__ob_Root_cb_'
 
         # Constrain world control to world bone, with offsets maintained
-        _create_constraint(
-            'CHILD_OF',
-            world_animation_skeleton, bone_name,
-            world_control_skeleton, control_name
-        )
+        bpy.context.view_layer.update()  # Ensure the dependency graph is updated
+        control = world_control_skeleton.pose.bones[control_name]
+        constraint = control.constraints.new(type='CHILD_OF')
+        constraint.target = world_animation_skeleton
+        if not is_root:
+            constraint.subtarget = bone_name
 
         # Constrain world control to matching control
-        _create_constraint(
-            'COPY_TRANSFORMS',
-            world_control_skeleton, control_name,
-            control_skeleton, control_name
-        )
+        bpy.context.view_layer.update()  # Ensure the dependency graph is updated
+        control = control_skeleton.pose.bones[control_name]
+        constraint = control.constraints.new(type='COPY_TRANSFORMS')
+        constraint.target = world_control_skeleton
+        constraint.subtarget = control_name
 
         # Constrain animation bone to world animation bone
-        _create_constraint(
-            'COPY_TRANSFORMS',
-            animation_skeleton, bone_name,
-            world_animation_skeleton, bone_name
-        )
+        bpy.context.view_layer.update()  # Ensure the dependency graph is updated
+        control = world_animation_skeleton if is_root else world_animation_skeleton.pose.bones[bone_name]
+        constraint = control.constraints.new(type='COPY_TRANSFORMS')
+        constraint.target = animation_skeleton
+        if not is_root:
+            constraint.subtarget = bone_name
 
     # Frame the timeline
     _frame_animation(animation_skeleton)

@@ -1,42 +1,16 @@
 
+import os
 import contextlib
 
 import bpy
 import mathutils
+from bpy.props import StringProperty, BoolProperty
+from bpy_extras.io_utils import ImportHelper
+from bpy.types import Operator
+
 from ..core import ckcmd
-
-IMPORT_MAPPING = {
-    'root_jnt': 'NPC_s_Root_s__ob_Root_cb_',
-    'Spine01_jnt': 'Sabrecat__ob_pelv_cb_',
-    'spine02_jnt': 'Sabrecat_Spine_ob_Spn0_cb_',
-    'tail01_jnt': 'Sabrecat_Tail1_ob_Tal1_cb_',
-    'tail02_jnt': 'Sabrecat_Tail2_ob_Tal2_cb_',
-    'upperSpine_jnt': 'Sabrecat_Spine_ob_Spn1_cb_',
-    'neck_jnt': 'Sabrecat_Spine_ob_Spn2_cb_',
-    'Jaw_Jnt': 'Sabrecat_Spine_ob_Spn3_cb_',
-    'tongue01_jnt': 'Sabrecat_Neck_ob_Nek0_cb_',
-    'tongue02_jnt': 'Sabrecat_Neck_ob_Nek1_cb_',
-    'right_hip_jnt': 'Sabrecat_RightThigh_ob_RThi_cb_',
-    # 'right_knee_jnt': 'Sabrecat_RightCalf_ob_RClf_cb_',
-    # 'right_ankle_jnt': 'Sabrecat_RightFoot_ob_RFot_cb_',
-    'left_hip_jnt': 'Sabrecat_LeftThigh_ob_LThi_cb_',
-    # 'left_knee_jnt': 'Sabrecat_LeftCalf_ob_LClf_cb_',
-    # 'left_ankle_jnt': 'Sabrecat_LeftFoot_ob_LFot_cb_',
-
-    'ctrl_foot_R': 'Sabrecat_RightToe0_ob_RT00_cb_',
-    'ctrl_foot_L': 'Sabrecat_LeftToe0_ob_LT00_cb_',
-
-    'left_knee_jnt': 'Sabrecat_LeftCalf_ob_LClf_cb_',
-    'right_knee_jnt': 'Sabrecat_RightCalf_ob_RClf_cb_',
-    'left_ankle_jnt': 'Sabrecat_LeftFoot_ob_LFot_cb_',
-    'right_ankle_jnt': 'Sabrecat_RightFoot_ob_RFot_cb_',
-
-    'ctrl_knee_R': 'Sabrecat_RightThigh_ob_RThi_cb_',
-    'ctrl_knee_L': 'Sabrecat_LeftThigh_ob_LThi_cb_',
-
-    'right_toe_jnt': 'Sabrecat_RightToe0_ob_RT01_cb_',
-    'left_toe_jnt': 'Sabrecat_LeftToe0_ob_LT01_cb_',
-    }
+from ..core.actor import Actor
+from . import dialog
 
 
 def _copy_skeleton_in_world_space(skeleton):
@@ -131,32 +105,24 @@ def _bake_animation(skeleton):
     )
 
 
-def _create_constraint(constraint_type, parent_skeleton=None, parent_bone_name=None, child_skeleton=None, child_bone_name=None):
-    bpy.context.view_layer.update()  # Ensure the dependency graph is updated
-    control = child_skeleton.pose.bones[child_bone_name]
-    constraint = control.constraints.new(type=constraint_type)
-    constraint.target = parent_skeleton
-    constraint.subtarget = parent_bone_name
-    return constraint
+class SKYWIND_OT_open_animation(Operator, ImportHelper):
+    bl_idname = "SKYWIND_OT_open_animation"
+    bl_label = "Open Animation"
+    filter_glob: StringProperty(default='*.fbx', options={'HIDDEN'})
+
+    def execute(self, context):
+        """Do something with the selected file(s)."""
+        open_animation(self.filepath)
+        return {'FINISHED'}
 
 
-def import_animation():
+def open_animation(animation_file: str):
     to_cleanup = []
 
-    skeleton_hkx = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\character assets\skeleton_le.hkx'
-    skeleton_nif = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\character assets\skeleton.nif'
-    animation_fbx = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\animations\attack1.fbx'
-    animation_fbx = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\animations\runforward.fbx'
-    control_rig = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\character assets\skeleton.blend'
-    skeleton_fbx = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\character assets\skeleton.fbx'
+    actor = Actor.find(animation_file)
 
-    # if animation.endswith('.hkx'):
-    #     animation_fbx = animation.replace('.hkx', '.fbx')
-    #     ckcmd.exportanimation(skeleton_hkx, animation, animation_fbx)
-    #     animation = animation_fbx
-
-    # skeleton_fbx = skeleton_hkx.replace('.hkx', '.fbx')
-    # ckcmd.export_rig(skeleton_hkx, skeleton_nif, skeleton_fbx)
+    # animation_fbx = actor.get_animation(animation_name)
+    animation_fbx = animation_file
 
     # Import Animation Skeleton
     bpy.ops.scene.new(type='EMPTY')
@@ -165,22 +131,22 @@ def import_animation():
     animation_skeleton = find_skeleton(animation_fbx_objects)
 
     # Import Export Skeleton
-    skeleton_fbx_objects = import_fbx(skeleton_fbx, global_scale=100)
+    skeleton_fbx_objects = import_fbx(actor.skeleton_fbx, global_scale=100)
     to_cleanup.extend(skeleton_fbx_objects)
     export_skeleton = find_skeleton(skeleton_fbx_objects)
 
     # Import Control Rig
-    control_rig_objects = append_scene(control_rig)
+    control_rig_objects = append_scene(actor.blender_rig)
     control_skeleton = find_skeleton(control_rig_objects)
 
     world_animation_skeleton = _copy_skeleton_in_world_space(export_skeleton)
     world_control_skeleton = _copy_skeleton_in_world_space(control_skeleton)
 
     for control_bone in world_control_skeleton.pose.bones:
-        if control_bone.name not in IMPORT_MAPPING:
+        if control_bone.name not in actor.blender_import_mapping:
             continue
         control_name = control_bone.name
-        bone_name = IMPORT_MAPPING[control_bone.name]
+        bone_name = actor.blender_import_mapping[control_bone.name]
         is_root = bone_name == 'NPC_s_Root_s__ob_Root_cb_'
 
         # Constrain world control to world bone, with offsets maintained
@@ -221,3 +187,10 @@ def import_animation():
 
 def import_rig():
     print('import rig')
+
+
+def register():
+    bpy.utils.register_class(SKYWIND_OT_open_animation.__name__)
+
+def unregister():
+    bpy.utils.unregister_class(SKYWIND_OT_open_animation.__name__)

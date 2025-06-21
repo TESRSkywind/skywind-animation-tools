@@ -2,7 +2,7 @@ import os.path
 import site
 
 
-SKYWIND_DIRECTORY = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+SKYWIND_DIRECTORY = os.path.dirname(os.path.dirname(__file__))
 SITE_DIRECTORIES = (
         os.path.join(SKYWIND_DIRECTORY, 'site-packages', '3.11'),
         os.path.join(SKYWIND_DIRECTORY, 'site-packages', 'any')

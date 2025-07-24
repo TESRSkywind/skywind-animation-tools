@@ -4,16 +4,15 @@ import site
 
 from ..core import startup
 from . import menu
-from . import api
+from . import operators
 
 
 def register():
     startup.initialize()
-
-    api.register()
+    operators.register()
     menu.register()
 
 
 def unregister():
-    api.unregister()
+    operators.unregister()
     menu.unregister()

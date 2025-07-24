@@ -20,9 +20,11 @@ def _generate_command(command_string: str):
     return inner
 
 
-from .api import SKYWIND_OT_open_animation
+from .operators import *
 MENU_COMMANDS = [
-    SKYWIND_OT_open_animation.__name__
+    SKYWIND_OT_open_animation.__name__,
+    SKYWIND_OT_open_animation_debug.__name__,
+    SKYWIND_OT_new_file.__name__
 ]
 # for menu_data in MENUS:
 #     class_name = f'SKYWIND_MT_{menu_data["id"]}'

@@ -8,10 +8,6 @@ import json
 CONFIG_EXTENSION = '.config.json'
 
 
-def current_data_directory() -> str:
-    return r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data'
-
-
 class Actor:
 
     @classmethod
@@ -22,16 +18,17 @@ class Actor:
         if len(config_files) > 1:
             raise RuntimeError(f'More than one config file found: {config_files}')
         if len(config_files) == 1:
-            return Actor.load(os.path.join(path, config_files[0]))
+            return Actor(os.path.join(path, config_files[0]))
         return Actor.find(os.path.dirname(path))
 
-    @classmethod
-    def load(cls, filepath: str) -> Actor:
-        with open(filepath, 'r') as openfile:
-            return Actor(json.load(openfile))
-
-    def __init__(self, data: dict[str, any]):
-        self._data = data
+    def __init__(self, filepath: str, data: dict[str, any] = None):
+        self._filepath = filepath
+        self._directory = os.path.dirname(filepath)
+        if data is None:
+            with open(filepath, 'r') as openfile:
+                self._data = json.load(openfile)
+        else:
+            self._data = data
 
     def get(self, key: str):
         if key not in self._data:
@@ -40,30 +37,30 @@ class Actor:
 
     @property
     def skeleton_fbx(self):
-        return os.path.join(current_data_directory(), self.get('directory'), self.get('skeleton_fbx'))
+        return os.path.join(self._directory, self.get('skeleton_fbx'))
 
     @property
     def skeleton_hkx(self):
-        return os.path.join(current_data_directory(), self.get('directory'), self.get('skeleton_hkx'))
+        return os.path.join(self._directory, self.get('skeleton_hkx'))
 
     @property
     def skeleton_nif(self):
-        return os.path.join(current_data_directory(), self.get('directory'), self.get('skeleton_nif'))
+        return os.path.join(self._directory, self.get('skeleton_nif'))
 
     @property
     def skeleton_le_hkx(self):
-        return os.path.join(current_data_directory(), self.get('directory'), self.get('skeleton_le_hkx'))
+        return os.path.join(self._directory, self.get('skeleton_le_hkx'))
 
     @property
     def animations(self):
-        return os.path.join(current_data_directory(), self.get('directory'), self.get('animations'))
+        return os.path.join(self._directory, self.get('animations'))
 
     def get_animation(self, animation: str):
         return os.path.join(self.animations, animation)
 
     @property
     def blender_rig(self):
-        return os.path.join(current_data_directory(), self.get('directory'), self.get('blender_rig'))
+        return os.path.join(self._directory, self.get('blender_rig'))
 
     @property
     def blender_import_mapping(self):

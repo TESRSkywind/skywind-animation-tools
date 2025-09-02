@@ -65,3 +65,11 @@ class Actor:
     @property
     def blender_import_mapping(self):
         return self.get('blender_import_mapping')
+
+    @property
+    def maya_rig(self):
+        return os.path.join(self._directory, self.get('maya_rig'))
+
+    @property
+    def maya_import_mapping(self):
+        return self.get('maya_import_mapping')

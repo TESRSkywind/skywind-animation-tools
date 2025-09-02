@@ -1,11 +1,12 @@
 """Blender add-on initialization."""
 
-from .blender import startup
 
 
 def register():
+    from .blender import startup
     startup.register()
 
 
 def unregister():
+    from .blender import startup
     startup.unregister()

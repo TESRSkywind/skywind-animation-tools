@@ -55,7 +55,7 @@ def _find_tags(node: fbx.FbxNode) -> list[Tag]:
                 keyframes = _get_anim_curve_keyframes(anim_curve)
                 labels = _get_enum_labels(prop)
                 keyframes = [(time, labels[int(value)]) for time, value in keyframes]
-                tags.append(Tag(node.GetName(), prop.GetName(), keyframes))
+                tags.append(Tag(node.GetName(), str(prop.GetName()), keyframes))
         prop = node.GetNextProperty(prop)
 
     # Recurse into children
@@ -166,9 +166,8 @@ def save_animation_tags(file_path: str, tags: list[Tag], out_path: str | None = 
                     _logger.info(f"Enum property '{tag.name}' already exists on node '{node.GetName()}'.")
                     break
             else:
-                enum_type = fbx.kFbxDataType.DTEnum
+                enum_type = fbx.FbxEnumDT
                 prop = fbx.FbxProperty.Create(node, enum_type, tag.name)
-                prop.ModifyFlag(fbx.FbxPropertyFlags.eUserDefined, True)
                 _logger.info(f"Enum property '{tag.name}' created.")
 
             # Add missing labels
@@ -180,19 +179,18 @@ def save_animation_tags(file_path: str, tags: list[Tag], out_path: str | None = 
                     current_labels.append(label)
 
             anim_curve = _get_anim_curve(prop)
-            if anim_curve is None:
-                pass
 
-            # anim_curve.KeyModifyBegin()
-            # anim_curve.KeyClear()
-            # for frame, value in tag.keyframes:
-            #     time = fbx.FbxTime()
-            #     time.SetFrame(frame, fbx.FbxTime.eFrames30)  # 30 FPS
-            #     key_index = anim_curve.KeyAdd(time)[0]
-            #     anim_curve.KeySetValue(key_index, labels.index(value))
-            #     anim_curve.KeySetInterpolation(key_index,
-            #                                    fbx.FbxAnimCurveDef.eInterpolationConstant)  # Enum = constant steps
-            # anim_curve.KeyModifyEnd()
+            anim_curve.KeyModifyBegin()
+            anim_curve.KeyClear()
+            for frame, value in tag.keyframes:
+                time = fbx.FbxTime()
+                time.SetSecondDouble(frame)
+                index, last = anim_curve.KeyAdd(time)
+                anim_curve.KeySet(
+                    index, time, current_labels.index(value),
+                    fbx.FbxAnimCurveDef.EInterpolationType.eInterpolationConstant
+                )
+            anim_curve.KeyModifyEnd()
 
         exporter.Export(scene)
 

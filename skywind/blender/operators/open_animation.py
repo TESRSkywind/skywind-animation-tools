@@ -12,6 +12,7 @@ from bpy.types import Operator
 
 from ...core import ckcmd
 from ...core.actor import Actor
+from ...fbx.tags import load_animation_tags
 
 
 __all__ = ['SKYWIND_OT_open_animation', 'SKYWIND_OT_open_animation_debug', 'SKYWIND_OT_new_file']
@@ -229,6 +230,46 @@ def create_empty_scene(name: str = 'Scene'):
     return new_scene
 
 
+def _get_frame_rate():
+    scene = bpy.data.scenes[0]  # Access the first scene (default)
+    fps = scene.render.fps
+    fps_base = scene.render.fps_base
+    frame_rate = fps / fps_base
+    return frame_rate
+
+
+def import_animation_tags(animation_fbx: str, object: any):
+    tags = load_animation_tags(animation_fbx)
+
+    # Ensure the armature has an action (to store animation data)
+    if object.animation_data is None:
+        object.animation_data_create()
+    if object.animation_data.action is None:
+        object.animation_data.action = bpy.data.actions.new(name=f"{object.name}_Action")
+    action = object.animation_data.action
+
+    for tag in tags:
+
+        for time, label in tag.keyframes:
+
+            property_name = f'{tag.node}::{tag.name}::{label}'
+            if property_name not in object:
+                object[property_name] = 0.0
+
+            # Data path for the custom property
+            data_path = f'["{property_name}"]'
+
+            # Create or get the F-Curve for the property
+            fcurve = action.fcurves.find(data_path)
+            if fcurve is None:
+                fcurve = action.fcurves.new(data_path=data_path, index=0)
+
+            # Set the keyframe
+            frame = time * _get_frame_rate()
+            key = fcurve.keyframe_points.insert(frame=frame, value=0.0)
+            key.interpolation = 'LINEAR'
+
+
 def open_animation(animation_file: str, debug: bool = False):
     _logger.info('Opening file: %s', animation_file)
 
@@ -239,15 +280,15 @@ def open_animation(animation_file: str, debug: bool = False):
     animation_fbx = animation_file
     bpy.ops.wm.read_homefile(use_empty=True)
 
-    # Import Animation Skeleton
-    animation_fbx_objects = import_fbx(animation_fbx, global_scale=100, use_custom_props=True, use_custom_props_enum_as_string=True)
-    to_cleanup.extend(animation_fbx_objects)
-    animation_skeleton = find_skeleton(animation_fbx_objects)
-
     # Import Export Skeleton
     skeleton_fbx_objects = import_fbx(actor.skeleton_fbx, global_scale=100)
     to_cleanup.extend(skeleton_fbx_objects)
     export_skeleton = find_skeleton(skeleton_fbx_objects)
+
+    # Import Animation Skeleton
+    animation_fbx_objects = import_fbx(animation_fbx, global_scale=100, use_custom_props=True, use_custom_props_enum_as_string=True)
+    to_cleanup.extend(animation_fbx_objects)
+    animation_skeleton = find_skeleton(animation_fbx_objects)
 
     # Import Control Rig
     control_rig_objects = append_scene(actor.blender_rig)
@@ -305,6 +346,11 @@ def open_animation(animation_file: str, debug: bool = False):
         bpy.data.objects.remove(item, do_unlink=True)
     bpy.data.objects.remove(world_control_skeleton, do_unlink=True)
     bpy.data.objects.remove(world_animation_skeleton, do_unlink=True)
+
+    # Load animation tags
+    # export_skeleton_fbx_objects = import_fbx(actor.skeleton_fbx, global_scale=100)
+    # export_skeleton = find_skeleton(export_skeleton_fbx_objects)
+    import_animation_tags(animation_fbx, control_skeleton)
 
     # Save scene
     file_name = os.path.basename(animation_fbx).split('.')[0]

@@ -13,6 +13,7 @@ from bpy.types import Operator
 from ...core import ckcmd
 from ...core.actor import Actor
 from ...fbx.tags import load_animation_tags
+from ..metadata import save_tags_to_object, save_source_path_to_object
 
 
 __all__ = ['SKYWIND_OT_open_animation', 'SKYWIND_OT_open_animation_debug', 'SKYWIND_OT_new_file']
@@ -230,14 +231,6 @@ def create_empty_scene(name: str = 'Scene'):
     return new_scene
 
 
-def _get_frame_rate():
-    scene = bpy.data.scenes[0]  # Access the first scene (default)
-    fps = scene.render.fps
-    fps_base = scene.render.fps_base
-    frame_rate = fps / fps_base
-    return frame_rate
-
-
 def import_animation_tags(animation_fbx: str, object: any):
     tags = load_animation_tags(animation_fbx)
 
@@ -347,10 +340,12 @@ def open_animation(animation_file: str, debug: bool = False):
     bpy.data.objects.remove(world_control_skeleton, do_unlink=True)
     bpy.data.objects.remove(world_animation_skeleton, do_unlink=True)
 
-    # Load animation tags
-    # export_skeleton_fbx_objects = import_fbx(actor.skeleton_fbx, global_scale=100)
-    # export_skeleton = find_skeleton(export_skeleton_fbx_objects)
-    import_animation_tags(animation_fbx, control_skeleton)
+    # Save animation tags
+    tags = load_animation_tags(animation_fbx)
+    save_tags_to_object(control_skeleton, tags)
+
+    # Save source file name
+    save_source_path_to_object(control_skeleton, animation_fbx)
 
     # Save scene
     file_name = os.path.basename(animation_fbx).split('.')[0]

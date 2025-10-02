@@ -17,7 +17,7 @@ from ...fbx.tags import load_animation_tags
 from ..metadata import save_tags_to_object, save_source_path_to_object
 
 
-__all__ = ['SKYWIND_OT_open_animation', 'SKYWIND_OT_open_animation_debug', 'SKYWIND_OT_new_file']
+__all__ = ['SKYWIND_OT_publish_animation', 'SKYWIND_OT_publish_animation_debug']
 _logger = logging.getLogger(__name__)
 
 
@@ -52,37 +52,6 @@ def _copy_skeleton_in_world_space(skeleton):
     bpy.ops.object.mode_set(mode='OBJECT')
 
     return intermediate_obj
-
-
-def append_scene(filepath: str) -> list:
-    _logger.debug('Appending scene: %s', filepath)
-    imported_objects = []
-
-    # Load and merge collections
-    with bpy.data.libraries.load(filepath, link=False) as (data_from, data_to):
-        _logger.debug(data_from.collections)
-        data_to.collections = data_from.collections
-
-    for imported_col in data_to.collections:
-        bpy.context.scene.collection.children.link(imported_col)
-        for obj in imported_col.objects:
-            imported_objects.append(obj)
-        for obj in imported_col.objects:
-            if obj.type == 'ARMATURE':
-                break
-        else:
-            imported_col.hide_viewport = True
-            imported_col.hide_render = True
-
-    _logger.debug('Imported objects: %s', imported_objects)
-    return imported_objects
-
-
-@view_3d_context()
-def import_fbx(fbx_file: str, **kwargs) -> list:
-    existing_objects = set(bpy.data.objects)
-    bpy.ops.import_scene.fbx(filepath=fbx_file, **kwargs)
-    return [obj for obj in bpy.data.objects if obj not in existing_objects]
 
 
 def find_skeleton(objects: list):
@@ -132,13 +101,14 @@ def _bake_animation(skeleton, bone_names):
 
 
 REG_PATH = r"Software\SkywindAnimation"
+REG_KEY = "LastDirectory"
 
 
-class OpenAnimationMixin:
+class PublishAnimationMixin:
 
     filepath: StringProperty(
         name="File Path",
-        description="Filepath used for importing the animation",
+        description="Filepath used for exporting the animation",
         subtype='FILE_PATH',
         options={'HIDDEN', 'SKIP_SAVE'}
     )
@@ -160,9 +130,9 @@ class OpenAnimationMixin:
         if self.files:
             for file in self.files:
                 filepath = os.path.join(os.path.dirname(self.filepath), file.name)
-                self.report({'INFO'}, f"Opening: {filepath}")
+                self.report({'INFO'}, f"Publishing: {filepath}")
                 self.open(filepath)
-                self.report({'INFO'}, f"Opened: {filepath}")
+                self.report({'INFO'}, f"Published: {filepath}")
             set_last_dir(self.filepath)
         else:
             self.report({'WARNING'}, "No file(s) selected")
@@ -172,34 +142,21 @@ class OpenAnimationMixin:
         raise NotImplemented
 
 
-class SKYWIND_OT_open_animation(Operator, OpenAnimationMixin):
-    bl_label = "Open Animation"
-    bl_description = "Open a Skywind animation"
+class SKYWIND_OT_publish_animation(Operator, PublishAnimationMixin):
+    bl_label = "Publish Animation"
+    bl_description = "Publish a Skywind animation"
 
     def open(self, filepath: str):
-        open_animation(filepath)
+        publish_animation(filepath)
 
 
-class SKYWIND_OT_open_animation_debug(Operator, OpenAnimationMixin):
-    bl_idname = "skywind.open_animation_debug"
-    bl_label = "Open Animation (Debug)"
-    bl_description = "Open and Debug a Skywind animation"
+class SKYWIND_OT_publish_animation_debug(Operator, PublishAnimationMixin):
+    bl_idname = "skywind.publish_animation_debug"
+    bl_label = "Publish Animation (Debug)"
+    bl_description = "Publish and Debug a Skywind animation"
 
     def open(self, filepath: str):
-        open_animation(filepath, debug=True)
-
-
-class SKYWIND_OT_new_file(Operator):
-    bl_label = "Open Animation"
-    bl_description = "Open a Skywind animation"
-
-    def invoke(self, context, event):
-        _logger.info('Invoking animation')
-        return bpy.ops.wm.read_homefile('INVOKE_DEFAULT', use_empty=True)
-
-    def execute(self, context):
-        bpy.ops.skywind.open_animation('INVOKE_DEFAULT')
-        return {'FINISHED'}
+        publish_animation(filepath, debug=True)
 
 
 def create_empty_scene(name: str = 'Scene'):

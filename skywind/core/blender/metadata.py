@@ -1,4 +1,6 @@
 
+import re
+
 import bpy
 
 from ..fbx.tags import Tag
@@ -82,7 +84,7 @@ def load_tags_from_object(object: str) -> list[Tag]:
         tag_id = (node, tag_name)
 
         if tag_id not in tags_by_id:
-            tag = Tag(node, tag_name)
+            tag = Tag(node, tag_name, [])
             tags_by_id[tag_id] = tag
         else:
             tag = tags_by_id[tag_id]

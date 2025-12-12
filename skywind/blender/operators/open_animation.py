@@ -1,57 +1,21 @@
 
 import os
 import logging
-import winreg
-import contextlib
 
 import bpy
-import mathutils
 from bpy.props import StringProperty, BoolProperty, CollectionProperty
-from bpy_extras.io_utils import ImportHelper
 from bpy.types import Operator
 
-from ...core import ckcmd
 from ...core.actor import Actor
 from ...core.preferences import get_last_dir, set_last_dir
-from ...fbx.tags import load_animation_tags
-from ..metadata import save_tags_to_object, save_source_path_to_object
+from ...core.blender.metadata import save_tags_to_object, save_source_path_to_object
+from ...core.blender.fbx import import_fbx
+from ...core.fbx.tags import load_animation_tags
+from ...core.blender.armature import copy_armature_in_world_space, bake_animation
 
 
 __all__ = ['SKYWIND_OT_open_animation', 'SKYWIND_OT_open_animation_debug', 'SKYWIND_OT_new_file']
 _logger = logging.getLogger(__name__)
-
-
-@contextlib.contextmanager
-def view_3d_context():
-    for window in bpy.context.window_manager.windows:
-        for area in window.screen.areas:
-            if area.type == "VIEW_3D":
-                with bpy.context.temp_override(window=window, area=area):
-                    yield
-                break
-
-
-@view_3d_context()
-def _copy_skeleton_in_world_space(skeleton):
-
-    intermediate_rig_name = 'IntermediateRig'
-    intermediate_rig = bpy.data.armatures.new(intermediate_rig_name)
-    intermediate_obj = bpy.data.objects.new(intermediate_rig_name, intermediate_rig)
-    bpy.context.collection.objects.link(intermediate_obj)
-    bpy.context.view_layer.objects.active = intermediate_obj
-
-    # Enter edit mode to create bones
-    bpy.ops.object.mode_set(mode='EDIT')
-    for bone in skeleton.pose.bones:
-        ctrl_bone = skeleton.pose.bones[bone.name]
-        world_matrix = skeleton.matrix_world @ ctrl_bone.matrix
-        new_bone = intermediate_rig.edit_bones.new(bone.name)
-        new_bone.head = world_matrix @ mathutils.Vector((0, 0, 0))
-        new_bone.tail = world_matrix @ mathutils.Vector((0, 1, 0))
-        new_bone.align_roll(world_matrix @ mathutils.Vector((0, 0, 1)) - new_bone.head)
-    bpy.ops.object.mode_set(mode='OBJECT')
-
-    return intermediate_obj
 
 
 def append_scene(filepath: str) -> list:
@@ -78,13 +42,6 @@ def append_scene(filepath: str) -> list:
     return imported_objects
 
 
-@view_3d_context()
-def import_fbx(fbx_file: str, **kwargs) -> list:
-    existing_objects = set(bpy.data.objects)
-    bpy.ops.import_scene.fbx(filepath=fbx_file, **kwargs)
-    return [obj for obj in bpy.data.objects if obj not in existing_objects]
-
-
 def find_skeleton(objects: list):
     skeletons = []
     for object in objects:
@@ -104,34 +61,6 @@ def _frame_animation(skeleton):
             keyframes.add(int(keyframe_point.co.x))
     bpy.context.scene.frame_start = min(keyframes)
     bpy.context.scene.frame_end = max(keyframes)
-
-
-@view_3d_context()
-def _bake_animation(skeleton, bone_names):
-    _logger.debug('Baking skeleton: %s' % skeleton)
-    bpy.context.view_layer.objects.active = skeleton
-
-    skeleton.select_set(True)
-    bpy.context.view_layer.objects.active = skeleton
-    bpy.ops.object.mode_set(mode='POSE')
-    for pose_bone in skeleton.pose.bones:
-        pose_bone.bone.select = False
-    for bone_name in bone_names:
-        skeleton.data.bones[bone_name].select = True
-
-    bpy.ops.nla.bake(
-        frame_start=int(bpy.context.scene.frame_start),
-        frame_end=int(bpy.context.scene.frame_end),
-        only_selected=True,
-        visual_keying=True,
-        clear_constraints=False,
-        use_current_action=True,
-        bake_types={'POSE'}
-    )
-    bpy.ops.object.mode_set(mode='OBJECT')
-
-
-REG_PATH = r"Software\SkywindAnimation"
 
 
 class OpenAnimationMixin:
@@ -260,7 +189,10 @@ def open_animation(animation_file: str, debug: bool = False):
     export_skeleton = find_skeleton(skeleton_fbx_objects)
 
     # Import Animation Skeleton
-    animation_fbx_objects = import_fbx(animation_fbx, global_scale=100, use_custom_props=True, use_custom_props_enum_as_string=True)
+    animation_fbx_objects = import_fbx(
+        animation_fbx, global_scale=100, use_custom_props=True, use_custom_props_enum_as_string=True,
+        anim_offset=0
+    )
     to_cleanup.extend(animation_fbx_objects)
     animation_skeleton = find_skeleton(animation_fbx_objects)
 
@@ -268,8 +200,8 @@ def open_animation(animation_file: str, debug: bool = False):
     control_rig_objects = append_scene(actor.blender_rig)
     control_skeleton = find_skeleton(control_rig_objects)
 
-    world_animation_skeleton = _copy_skeleton_in_world_space(export_skeleton)
-    world_control_skeleton = _copy_skeleton_in_world_space(control_skeleton)
+    world_animation_skeleton = copy_armature_in_world_space(export_skeleton, use_pose_bones=True)
+    world_control_skeleton = copy_armature_in_world_space(control_skeleton, use_pose_bones=True)
 
     to_constrain = []
     for control_bone in world_control_skeleton.pose.bones:
@@ -313,7 +245,7 @@ def open_animation(animation_file: str, debug: bool = False):
     _frame_animation(animation_skeleton)
 
     # Bake animation onto control rig
-    _bake_animation(control_skeleton, actor.blender_import_mapping.keys())
+    bake_animation(control_skeleton, actor.blender_import_mapping.keys())
 
     # Delete skeletons
     for item in to_cleanup:
@@ -323,7 +255,11 @@ def open_animation(animation_file: str, debug: bool = False):
 
     # Save animation tags
     tags = load_animation_tags(animation_fbx)
-    save_tags_to_object(control_skeleton, tags)
+    if tags:
+        _logger.info('Saving %s tags to %s', len(tags), control_skeleton)
+        save_tags_to_object(control_skeleton, tags)
+    else:
+        _logger.info('No tags to save')
 
     # Save source file name
     save_source_path_to_object(control_skeleton, animation_fbx)

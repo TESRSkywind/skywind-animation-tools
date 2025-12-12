@@ -67,3 +67,25 @@ def export_animation(skeleton_hkx: str, animation_hkx: str, output_directory: st
     command = '%s exportanimation "%s" "%s" --e="%s"' % (CKCMD, skeleton_hkx, animation_hkx, output_directory)
     run_command(command, directory=output_directory)
     return command
+
+
+def import_animation(
+        skeleton_hkx: str, animation_fbx: str, animation_hkx: str, cache_txt: str = '', behavior_directory: str = ''
+):
+    """Converts an animation from fbx to hkx.
+
+    Args:
+        skeleton_hkx(str): A skeleton.hkx path.
+        animation_fbx(str): An animation fbx file or directory containing animation fbx files.
+        animation_hkx(str): The output fbx file.
+        cache_txt(str): An optional cache file to contain root motion data.
+        behavior_directory(str): An optional behavior directory.
+
+    Returns:
+        str: The executed command string.
+    """
+    command = f'{CKCMD} importanimation "{skeleton_hkx}" "{animation_fbx}" --c="{cache_txt}" --b="{behavior_directory}" --e="{animation_hkx}"'
+    run_command(command, directory=os.path.dirname(animation_hkx))
+    if not os.path.exists(animation_fbx):
+        raise FileNotFoundError(f'Failed to import {animation_fbx}')
+    return command

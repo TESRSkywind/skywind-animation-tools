@@ -6,6 +6,7 @@ import logging
 __all__ = ['get_last_dir', 'set_last_dir']
 _logger = logging.getLogger(__name__)
 LAST_DIRECTORY_KEY = "LastDirectory"
+REG_PATH = r"Software\SkywindAnimation"
 
 
 def get_last_dir() -> str:

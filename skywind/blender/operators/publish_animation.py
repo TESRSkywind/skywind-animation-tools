@@ -13,45 +13,17 @@ from bpy.types import Operator
 from ...core import ckcmd
 from ...core.actor import Actor
 from ...core.preferences import get_last_dir, set_last_dir
-from ...fbx.tags import load_animation_tags
-from ..metadata import save_tags_to_object, save_source_path_to_object
+from ...core.fbx.tags import load_animation_tags, save_animation_tags
+from ...core.blender.contexts import view_3d_context
+from ...core.blender.fbx import import_fbx, export_fbx_animation
+from ...core.blender.metadata import load_tags_from_object, load_source_path_from_object, SOURCE_PATH_PROPERTY_NAME
+from ...core.blender.armature import copy_armature_in_world_space, bake_animation
+from ...core.blender.mixins import ActorOperatorMixin
 
 
-__all__ = ['SKYWIND_OT_publish_animation', 'SKYWIND_OT_publish_animation_debug']
+__all__ = ['SKYWIND_OT_publish_animation', 'SKYWIND_OT_publish_scene']
 _logger = logging.getLogger(__name__)
-
-
-@contextlib.contextmanager
-def view_3d_context():
-    for window in bpy.context.window_manager.windows:
-        for area in window.screen.areas:
-            if area.type == "VIEW_3D":
-                with bpy.context.temp_override(window=window, area=area):
-                    yield
-                break
-
-
-@view_3d_context()
-def _copy_skeleton_in_world_space(skeleton):
-
-    intermediate_rig_name = 'IntermediateRig'
-    intermediate_rig = bpy.data.armatures.new(intermediate_rig_name)
-    intermediate_obj = bpy.data.objects.new(intermediate_rig_name, intermediate_rig)
-    bpy.context.collection.objects.link(intermediate_obj)
-    bpy.context.view_layer.objects.active = intermediate_obj
-
-    # Enter edit mode to create bones
-    bpy.ops.object.mode_set(mode='EDIT')
-    for bone in skeleton.pose.bones:
-        ctrl_bone = skeleton.pose.bones[bone.name]
-        world_matrix = skeleton.matrix_world @ ctrl_bone.matrix
-        new_bone = intermediate_rig.edit_bones.new(bone.name)
-        new_bone.head = world_matrix @ mathutils.Vector((0, 0, 0))
-        new_bone.tail = world_matrix @ mathutils.Vector((0, 1, 0))
-        new_bone.align_roll(world_matrix @ mathutils.Vector((0, 0, 1)) - new_bone.head)
-    bpy.ops.object.mode_set(mode='OBJECT')
-
-    return intermediate_obj
+ROOT_BONE_NAME = 'NPC_s_Root_s__ob_Root_cb_'
 
 
 def find_skeleton(objects: list):
@@ -75,36 +47,14 @@ def _frame_animation(skeleton):
     bpy.context.scene.frame_end = max(keyframes)
 
 
-@view_3d_context()
-def _bake_animation(skeleton, bone_names):
-    _logger.debug('Baking skeleton: %s' % skeleton)
-    bpy.context.view_layer.objects.active = skeleton
-
-    skeleton.select_set(True)
-    bpy.context.view_layer.objects.active = skeleton
-    bpy.ops.object.mode_set(mode='POSE')
-    for pose_bone in skeleton.pose.bones:
-        pose_bone.bone.select = False
-    for bone_name in bone_names:
-        skeleton.data.bones[bone_name].select = True
-
-    bpy.ops.nla.bake(
-        frame_start=int(bpy.context.scene.frame_start),
-        frame_end=int(bpy.context.scene.frame_end),
-        only_selected=True,
-        visual_keying=True,
-        clear_constraints=False,
-        use_current_action=True,
-        bake_types={'POSE'}
-    )
-    bpy.ops.object.mode_set(mode='OBJECT')
-
-
 REG_PATH = r"Software\SkywindAnimation"
 REG_KEY = "LastDirectory"
 
 
-class PublishAnimationMixin:
+class SKYWIND_OT_publish_animation(Operator, ActorOperatorMixin):
+    bl_label = "Publish Animation"
+    bl_description = "Publish a Skywind animation"
+
 
     filepath: StringProperty(
         name="File Path",
@@ -122,6 +72,9 @@ class PublishAnimationMixin:
     )
 
     def invoke(self, context, event):
+        self.actor_armature = self.get_scene_actor()
+        if self.actor_armature is None:
+            return {'CANCELLED'}
         self.filepath = get_last_dir()
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
@@ -131,32 +84,38 @@ class PublishAnimationMixin:
             for file in self.files:
                 filepath = os.path.join(os.path.dirname(self.filepath), file.name)
                 self.report({'INFO'}, f"Publishing: {filepath}")
-                self.open(filepath)
+                actor, armature = self.actor_armature
+                publish_control_rig_animation(
+                    armature,
+                    load_source_path_from_object(armature),
+                    actor.skeleton_fbx,
+                    actor.blender_export_mapping
+                )
                 self.report({'INFO'}, f"Published: {filepath}")
             set_last_dir(self.filepath)
         else:
             self.report({'WARNING'}, "No file(s) selected")
         return {'FINISHED'}
 
-    def open(self, filepath: str):
-        raise NotImplemented
 
+class SKYWIND_OT_publish_scene(Operator, ActorOperatorMixin):
+    bl_label = "Publish Scene"
+    bl_description = "Publish all Skywind animations in the scene"
 
-class SKYWIND_OT_publish_animation(Operator, PublishAnimationMixin):
-    bl_label = "Publish Animation"
-    bl_description = "Publish a Skywind animation"
-
-    def open(self, filepath: str):
-        publish_animation(filepath)
-
-
-class SKYWIND_OT_publish_animation_debug(Operator, PublishAnimationMixin):
-    bl_idname = "skywind.publish_animation_debug"
-    bl_label = "Publish Animation (Debug)"
-    bl_description = "Publish and Debug a Skywind animation"
-
-    def open(self, filepath: str):
-        publish_animation(filepath, debug=True)
+    def execute(self, context):
+        self.actor_armatures = self.get_scene_actors()
+        if len(self.actor_armatures) == 0:
+            return {'CANCELLED'}
+        for actor, armature in self.actor_armatures:
+            filepath = load_source_path_from_object(armature)
+            publish_control_rig_animation(
+                armature,
+                filepath,
+                actor.skeleton_fbx,
+                actor.blender_export_mapping
+            )
+            self.report({'INFO'}, f"Published: {filepath}")
+        return {'FINISHED'}
 
 
 def create_empty_scene(name: str = 'Scene'):
@@ -201,94 +160,84 @@ def import_animation_tags(animation_fbx: str, object: any):
             key.interpolation = 'LINEAR'
 
 
-def open_animation(animation_file: str, debug: bool = False):
-    _logger.info('Opening file: %s', animation_file)
+def publish_control_rig_animation(
+        control_skeleton: bpy.types.Armature, animation_file: str, skeleton_fbx: str,
+        blender_export_mapping: dict[str, str]
+):
+    _logger.info('Publishing file: %s', animation_file)
 
     to_cleanup = []
-    actor = Actor.find(animation_file)
-
-    # animation_fbx = actor.get_animation(animation_name)
-    animation_fbx = animation_file
-    bpy.ops.wm.read_homefile(use_empty=True)
 
     # Import Export Skeleton
-    skeleton_fbx_objects = import_fbx(actor.skeleton_fbx, global_scale=100)
+    skeleton_fbx_objects = import_fbx(skeleton_fbx, global_scale=100)
     to_cleanup.extend(skeleton_fbx_objects)
     export_skeleton = find_skeleton(skeleton_fbx_objects)
 
-    # Import Animation Skeleton
-    animation_fbx_objects = import_fbx(animation_fbx, global_scale=100, use_custom_props=True, use_custom_props_enum_as_string=True)
-    to_cleanup.extend(animation_fbx_objects)
-    animation_skeleton = find_skeleton(animation_fbx_objects)
-
-    # Import Control Rig
-    control_rig_objects = append_scene(actor.blender_rig)
-    control_skeleton = find_skeleton(control_rig_objects)
-
-    world_animation_skeleton = _copy_skeleton_in_world_space(export_skeleton)
-    world_control_skeleton = _copy_skeleton_in_world_space(control_skeleton)
+    world_export_skeleton = copy_armature_in_world_space(export_skeleton)
+    world_control_skeleton = copy_armature_in_world_space(control_skeleton)
 
     to_constrain = []
-    for control_bone in world_control_skeleton.pose.bones:
-        if control_bone.name not in actor.blender_import_mapping:
+    for control in world_control_skeleton.pose.bones:
+        if control.name not in blender_export_mapping:
             continue
-        control_name = control_bone.name
-        bone_name = actor.blender_import_mapping[control_bone.name]
-        is_root = bone_name == 'NPC_s_Root_s__ob_Root_cb_'
+        control_name = control.name
+        bone_name = blender_export_mapping[control_name]
+        is_root = bone_name == ROOT_BONE_NAME
 
-        # Constrain world control to world bone, with offsets maintained
+        # Constrain the world export skeleton to the world control skeleton
+        bpy.context.view_layer.update()  # Ensure the dependency graph is updated
+        if is_root:
+            constraint = world_export_skeleton.constraints.new(type='CHILD_OF')
+            constraint.target = world_control_skeleton
+            constraint.subtarget = control_name
+        else:
+            pose_bone = world_export_skeleton.pose.bones[bone_name]
+            constraint = pose_bone.constraints.new(type='CHILD_OF')
+            constraint.target = world_control_skeleton
+            constraint.subtarget = control_name
+
+        bpy.context.view_layer.update()  # Ensure the dependency graph is updated
+        if is_root:
+            constraint = export_skeleton.constraints.new(type='COPY_TRANSFORMS')
+            constraint.target = world_export_skeleton
+        else:
+            export_bone = export_skeleton.pose.bones[bone_name]
+            constraint = export_bone.constraints.new(type='COPY_TRANSFORMS')
+            constraint.target = world_export_skeleton
+            constraint.subtarget = bone_name
+        to_constrain.append(control_name)
+
+    for control_name in to_constrain:
+        bpy.context.view_layer.update()  # Ensure the dependency graph is updated
         bpy.context.view_layer.update()  # Ensure the dependency graph is updated
         control = world_control_skeleton.pose.bones[control_name]
-        constraint = control.constraints.new(type='CHILD_OF')
-        constraint.target = world_animation_skeleton
-        if not is_root:
-            constraint.subtarget = bone_name
-
-        # Constrain world control to matching control
-        bpy.context.view_layer.update()  # Ensure the dependency graph is updated
-        control = control_skeleton.pose.bones[control_name]
         constraint = control.constraints.new(type='COPY_TRANSFORMS')
-        constraint.target = world_control_skeleton
+        constraint.target = control_skeleton
         constraint.subtarget = control_name
-        to_constrain.append(bone_name)
-
-    # Constrain animation bones to world animation bones
-    for bone_name in to_constrain:
-        bpy.context.view_layer.update()  # Ensure the dependency graph is updated
-        is_root = bone_name == 'NPC_s_Root_s__ob_Root_cb_'
-        bpy.context.view_layer.update()  # Ensure the dependency graph is updated
-        control = world_animation_skeleton if is_root else world_animation_skeleton.pose.bones[bone_name]
-        constraint = control.constraints.new(type='COPY_TRANSFORMS')
-        constraint.target = animation_skeleton
-        if not is_root:
-            constraint.subtarget = bone_name
-
-    if debug:
-        return
-
-    # Frame the timeline
-    _frame_animation(animation_skeleton)
 
     # Bake animation onto control rig
-    _bake_animation(control_skeleton, actor.blender_import_mapping.keys())
+    to_bake = [bone for bone in blender_export_mapping.values() if bone != ROOT_BONE_NAME]
+    bake_animation(export_skeleton, to_bake)
 
     # Delete skeletons
+    bpy.data.objects.remove(world_control_skeleton, do_unlink=True)
+    bpy.data.objects.remove(world_export_skeleton, do_unlink=True)
+
+    # Export the animation
+    _logger.info('Exporting %s', animation_file)
+    export_fbx_animation(export_skeleton, animation_file, global_scale=0.01)
+
+    # Cleanup export skeleton
+    _logger.info('Removing export skeleton')
     for item in to_cleanup:
         bpy.data.objects.remove(item, do_unlink=True)
-    bpy.data.objects.remove(world_control_skeleton, do_unlink=True)
-    bpy.data.objects.remove(world_animation_skeleton, do_unlink=True)
 
     # Save animation tags
-    tags = load_animation_tags(animation_fbx)
-    save_tags_to_object(control_skeleton, tags)
-
-    # Save source file name
-    save_source_path_to_object(control_skeleton, animation_fbx)
-
-    # Save scene
-    file_name = os.path.basename(animation_fbx).split('.')[0]
-    blender_path = os.path.join(os.path.dirname(animation_fbx), f'{file_name}.blend')
-    bpy.ops.wm.save_as_mainfile(filepath=blender_path)
+    tags = load_tags_from_object(control_skeleton)
+    if tags:
+        _logger.info('Exporting animation tags')
+        save_animation_tags(animation_file, tags)
+        _logger.info('Exported animation tags')
 
 
 def import_rig():

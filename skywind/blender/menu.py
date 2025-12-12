@@ -6,7 +6,10 @@ MENU_COMMANDS = [
     SKYWIND_OT_open_animation.__name__,
     SKYWIND_OT_open_animation_debug.__name__,
     SKYWIND_OT_publish_animation.__name__,
-    SKYWIND_OT_publish_animation_debug.__name__
+    # SKYWIND_OT_publish_animation_debug.__name__
+    SKYWIND_OT_publish_scene.__name__,
+    SKYWIND_OT_set_source_file.__name__,
+    SKYWIND_OT_import_tags.__name__
 ]
 
 

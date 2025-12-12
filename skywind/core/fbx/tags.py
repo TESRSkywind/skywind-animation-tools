@@ -135,6 +135,24 @@ def load_animation_tags(file_path: str) -> list[Tag] | None:
         fbx_manager.Destroy()
 
 
+def _get_existing_anim_layer(scene):
+    """
+    Returns the first existing animation layer in the scene,
+    or None if none exists.
+    """
+    anim_stack_count = scene.GetSrcObjectCount(fbx.FbxCriteria.ObjectType(fbx.FbxAnimStack.ClassId))
+    if anim_stack_count == 0:
+        return None
+
+    anim_stack = scene.GetSrcObject(fbx.FbxCriteria.ObjectType(fbx.FbxAnimStack.ClassId), 0)
+    layer_count = anim_stack.GetMemberCount(fbx.FbxCriteria.ObjectType(fbx.FbxAnimLayer.ClassId))
+
+    if layer_count == 0:
+        return None
+
+    return anim_stack.GetMember(fbx.FbxCriteria.ObjectType(fbx.FbxAnimLayer.ClassId), 0)
+
+
 def save_animation_tags(file_path: str, tags: list[Tag], out_path: str | None = None):
     out_path = out_path or file_path
     fbx_manager = fbx.FbxManager.Create()
@@ -158,7 +176,9 @@ def save_animation_tags(file_path: str, tags: list[Tag], out_path: str | None = 
             return
 
         for tag in tags:
+            _logger.debug('Finding node %s', tag.node)
             node = _find_node_by_name(root_node, tag.node)
+            _logger.debug('Found node %s', node)
 
             for i in range(node.GetNodeAttributeCount()):
                 prop = node.GetNodeAttributeByIndex(i)
@@ -168,9 +188,11 @@ def save_animation_tags(file_path: str, tags: list[Tag], out_path: str | None = 
             else:
                 enum_type = fbx.FbxEnumDT
                 prop = fbx.FbxProperty.Create(node, enum_type, tag.name)
+                prop.ModifyFlag(fbx.FbxPropertyFlags.EFlags.eAnimatable, True)
+                prop.ModifyFlag(fbx.FbxPropertyFlags.EFlags.eUserDefined, True)
                 _logger.info(f"Enum property '{tag.name}' created.")
 
-            # Add missing labels
+            # # Add missing labels
             current_labels = _get_enum_labels(prop)
             expected_labels = set([value for key, value in tag.keyframes])
             for label in expected_labels:
@@ -179,8 +201,15 @@ def save_animation_tags(file_path: str, tags: list[Tag], out_path: str | None = 
                     current_labels.append(label)
 
             anim_curve = _get_anim_curve(prop)
+            if anim_curve is None:
+                anim_layer = _get_existing_anim_layer(scene)
+                anim_curve_node = prop.CreateCurveNode(anim_layer)
+                if anim_curve_node is None:
+                    raise RuntimeError('Failed to create animation curve node')
+                anim_curve = anim_curve_node.CreateCurve(f'{anim_curve_node.GetName()}Curve')
+                if anim_curve is None:
+                    raise RuntimeError('Failed to create animation curve')
 
-            anim_curve.KeyModifyBegin()
             anim_curve.KeyClear()
             for frame, value in tag.keyframes:
                 time = fbx.FbxTime()
@@ -190,7 +219,6 @@ def save_animation_tags(file_path: str, tags: list[Tag], out_path: str | None = 
                     index, time, current_labels.index(value),
                     fbx.FbxAnimCurveDef.EInterpolationType.eInterpolationConstant
                 )
-            anim_curve.KeyModifyEnd()
 
         exporter.Export(scene)
 
@@ -200,11 +228,14 @@ def save_animation_tags(file_path: str, tags: list[Tag], out_path: str | None = 
 
 
 if __name__ == '__main__':
-    filepath = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\animations\runforward.fbx'
+    # filepath = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\animations\runforward.fbx'
+    filepath = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\sabrecat\animations\attack1_test.fbx'
+    out_path = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\sabrecat\animations\attack1_test2.fbx'
     tags = load_animation_tags(filepath)
+    tags.append(Tag('NPC_s_Root_s__ob_Root_cb_', 'hkSoundPlay.NPCSabreCat', keyframes=[(0.9333333404195011, 'Attack')]))
     for tag in tags:
         print(tags)
-    out_path = filepath.replace('.fbx', '_out.fbx')
+    # out_path = filepath.replace('.fbx', '_out.fbx')
     save_animation_tags(filepath, tags, out_path)
     tags = load_animation_tags(out_path)
     for tag in tags:

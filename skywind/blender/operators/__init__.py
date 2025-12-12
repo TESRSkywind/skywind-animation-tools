@@ -6,6 +6,7 @@ import bpy
 from .save_changes import *
 from .open_animation import *
 from .publish_animation import *
+from .import_tags import *
 
 
 _logger = logging.getLogger(__name__)

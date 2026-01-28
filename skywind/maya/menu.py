@@ -3,6 +3,7 @@ from maya import mel
 import maya.cmds as cmds
 
 from skywind.maya.commands import open_animation
+from skywind.maya.commands import import_animation_tags
 
 
 SKYRIM_MENU = "skywindMenu"
@@ -29,3 +30,4 @@ def create_skywind_menu():
 
     # Add a menu item labeled "Open Animation"
     cmds.menuItem(label='Open Animation', parent=parent_menu, command=open_animation)
+    cmds.menuItem(label='Import Animation Tags', parent=parent_menu, command=import_animation_tags)

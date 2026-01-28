@@ -20,26 +20,45 @@ def _get_bone_matrix(bone: bpy.types.Bone) -> mathutils.Matrix:
 
 
 @view_3d_context()
-def copy_armature_in_world_space(armature: bpy.types.Armature, use_pose_bones: bool = False) -> bpy.types.Armature:
-
-    intermediate_rig_name = 'IntermediateRig'
-    intermediate_rig = bpy.data.armatures.new(intermediate_rig_name)
-    intermediate_obj = bpy.data.objects.new(intermediate_rig_name, intermediate_rig)
+def copy_armature_in_world_space(armature_obj: bpy.types.Object, use_pose_bones: bool = False,
+                                 name: str = None) -> bpy.types.Object:
+    intermediate_rig_name = name or 'IntermediateRig'
+    intermediate_rig_data = bpy.data.armatures.new(intermediate_rig_name)
+    intermediate_obj = bpy.data.objects.new(intermediate_rig_name, intermediate_rig_data)
     bpy.context.collection.objects.link(intermediate_obj)
-    bpy.context.view_layer.objects.active = intermediate_obj
+
+    # Ensure the source is evaluated if using pose bones
+    src_obj_eval = armature_obj
 
     # Enter edit mode to create bones
+    bpy.context.view_layer.objects.active = intermediate_obj
     bpy.ops.object.mode_set(mode='EDIT')
-    bones = armature.pose.bones if use_pose_bones else armature.data.bones
-    for bone in bones:
-        ctrl_bone = bones[bone.name]
-        world_matrix = armature.matrix_world @ _get_bone_matrix(ctrl_bone)
-        new_bone = intermediate_rig.edit_bones.new(bone.name)
-        new_bone.head = world_matrix @ mathutils.Vector((0, 0, 0))
-        new_bone.tail = world_matrix @ mathutils.Vector((0, 1, 0))
-        new_bone.align_roll(world_matrix @ mathutils.Vector((0, 0, 1)) - new_bone.head)
-    bpy.ops.object.mode_set(mode='OBJECT')
 
+    source_bones = src_obj_eval.pose.bones if use_pose_bones else src_obj_eval.data.bones
+
+    for src_bone in source_bones:
+        # Create new bone
+        new_bone = intermediate_rig_data.edit_bones.new(src_bone.name)
+
+        # Calculate World Matrix: Object World Matrix @ Bone Local Matrix
+        # Note: For PoseBones use .matrix, for EditBones/DataBones use .matrix_local
+        bone_local_matrix = src_bone.matrix if use_pose_bones else src_bone.matrix_local
+        world_matrix = armature_obj.matrix_world @ bone_local_matrix
+
+        # 1. Set Head (The translation part of the matrix)
+        new_bone.head = world_matrix.to_translation()
+
+        # 2. Set Tail (The head + the Y-axis direction scaled by length)
+        # In Blender bones, the Y-axis points from Head to Tail
+        bone_direction = world_matrix.to_quaternion() @ mathutils.Vector((0, 1, 0))
+        new_bone.tail = new_bone.head + (bone_direction * src_bone.length)
+
+        # 3. Match Roll
+        # We align the new bone's Z-axis to the source bone's world-space Z-axis
+        world_z_axis = world_matrix.to_quaternion() @ mathutils.Vector((0, 0, 1))
+        new_bone.align_roll(world_z_axis)
+
+    bpy.ops.object.mode_set(mode='OBJECT')
     return intermediate_obj
 
 

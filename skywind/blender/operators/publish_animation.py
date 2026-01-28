@@ -1,22 +1,16 @@
 
 import os
 import logging
-import winreg
-import contextlib
+import time
 
 import bpy
-import mathutils
 from bpy.props import StringProperty, BoolProperty, CollectionProperty
-from bpy_extras.io_utils import ImportHelper
 from bpy.types import Operator
 
-from ...core import ckcmd
-from ...core.actor import Actor
 from ...core.preferences import get_last_dir, set_last_dir
 from ...core.fbx.tags import load_animation_tags, save_animation_tags
-from ...core.blender.contexts import view_3d_context
 from ...core.blender.fbx import import_fbx, export_fbx_animation
-from ...core.blender.metadata import load_tags_from_object, load_source_path_from_object, SOURCE_PATH_PROPERTY_NAME
+from ...core.blender.metadata import load_tags_from_object, load_source_path_from_object
 from ...core.blender.armature import copy_armature_in_world_space, bake_animation
 from ...core.blender.mixins import ActorOperatorMixin
 
@@ -87,7 +81,7 @@ class SKYWIND_OT_publish_animation(Operator, ActorOperatorMixin):
                 actor, armature = self.actor_armature
                 publish_control_rig_animation(
                     armature,
-                    load_source_path_from_object(armature),
+                    filepath,
                     actor.skeleton_fbx,
                     actor.blender_export_mapping
                 )
@@ -173,8 +167,9 @@ def publish_control_rig_animation(
     to_cleanup.extend(skeleton_fbx_objects)
     export_skeleton = find_skeleton(skeleton_fbx_objects)
 
-    world_export_skeleton = copy_armature_in_world_space(export_skeleton)
-    world_control_skeleton = copy_armature_in_world_space(control_skeleton)
+    world_export_skeleton = copy_armature_in_world_space(export_skeleton, name='WorldExportSkeleton')
+    world_control_skeleton = copy_armature_in_world_space(control_skeleton, name='WorldControlSkeleton')
+
 
     to_constrain = []
     for control in world_control_skeleton.pose.bones:
@@ -208,7 +203,6 @@ def publish_control_rig_animation(
         to_constrain.append(control_name)
 
     for control_name in to_constrain:
-        bpy.context.view_layer.update()  # Ensure the dependency graph is updated
         bpy.context.view_layer.update()  # Ensure the dependency graph is updated
         control = world_control_skeleton.pose.bones[control_name]
         constraint = control.constraints.new(type='COPY_TRANSFORMS')

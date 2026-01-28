@@ -44,5 +44,5 @@ class ActorOperatorMixin:
             self.report({'WARNING'}, "Multiple actors found")
             return None
         for actor in actors:
-            return actors
+            return actor
         return None

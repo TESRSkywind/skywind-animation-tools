@@ -112,15 +112,7 @@ class SKYWIND_OT_set_source_file(Operator):
             self.report({'WARNING'}, "No file(s) selected")
         return {'FINISHED'}
 
-    def open(self, filepath: str):
-        set_source_file(filepath)
-
 
 def set_source_file(armature: bpy.types.Armature, filepath: str):
-    tags = load_animation_tags(filepath)
-    if tags:
-        _logger.info('Saving %s tags to %s', len(tags), armature.name)
-        save_tags_to_object(armature, tags)
-    else:
-        _logger.info('No tags to save')
     save_source_path_to_object(armature, filepath)
+    _logger.info('Saved %s to %s', filepath, armature.name)

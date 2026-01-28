@@ -192,34 +192,45 @@ def save_animation_tags(file_path: str, tags: list[Tag], out_path: str | None = 
                 prop.ModifyFlag(fbx.FbxPropertyFlags.EFlags.eUserDefined, True)
                 _logger.info(f"Enum property '{tag.name}' created.")
 
-            # # Add missing labels
+            # Add missing labels
             current_labels = _get_enum_labels(prop)
             expected_labels = set([value for key, value in tag.keyframes])
             for label in expected_labels:
                 if label not in current_labels:
+                    _logger.info('Adding missing label %s', label)
                     prop.AddEnumValue(label)
                     current_labels.append(label)
 
             anim_curve = _get_anim_curve(prop)
             if anim_curve is None:
+                _logger.info('Adding missing animation curve for %s', tag.name)
                 anim_layer = _get_existing_anim_layer(scene)
-                anim_curve_node = prop.CreateCurveNode(anim_layer)
+                anim_curve_node = prop.GetCurveNode(anim_layer, True)
                 if anim_curve_node is None:
                     raise RuntimeError('Failed to create animation curve node')
-                anim_curve = anim_curve_node.CreateCurve(f'{anim_curve_node.GetName()}Curve')
+                anim_curve = anim_curve_node.CreateCurve(f'{anim_curve_node.GetName()}Curve', 0)
                 if anim_curve is None:
                     raise RuntimeError('Failed to create animation curve')
+                _logger.info('Created %s', anim_curve.GetName())
+            else:
+                _logger.info('Found anim curve %s', anim_curve.GetName())
 
+            _logger.info('Setting keyframes on %s', anim_curve.GetName())
+            anim_curve.KeyModifyBegin()
             anim_curve.KeyClear()
             for frame, value in tag.keyframes:
                 time = fbx.FbxTime()
                 time.SetSecondDouble(frame)
                 index, last = anim_curve.KeyAdd(time)
+                _logger.debug('Keying %s on frame %s for %s', value, frame, anim_curve.GetName())
                 anim_curve.KeySet(
                     index, time, current_labels.index(value),
                     fbx.FbxAnimCurveDef.EInterpolationType.eInterpolationConstant
                 )
+            anim_curve.KeyModifyEnd()
+            _logger.info('Finished setting keyframes on %s', anim_curve.GetName())
 
+        _logger.info('Saving %s', out_path)
         exporter.Export(scene)
 
     finally:
@@ -229,12 +240,17 @@ def save_animation_tags(file_path: str, tags: list[Tag], out_path: str | None = 
 
 if __name__ == '__main__':
     # filepath = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\alit\animations\runforward.fbx'
-    filepath = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\sabrecat\animations\attack1_test.fbx'
-    out_path = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\sabrecat\animations\attack1_test2.fbx'
-    tags = load_animation_tags(filepath)
-    tags.append(Tag('NPC_s_Root_s__ob_Root_cb_', 'hkSoundPlay.NPCSabreCat', keyframes=[(0.9333333404195011, 'Attack')]))
-    for tag in tags:
-        print(tags)
+    # filepath = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\sabrecat\animations\attack1_test.fbx'
+    # out_path = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\actors\sabrecat\animations\attack1_test2.fbx'
+    # tags = load_animation_tags(filepath)
+    # tags.append(Tag('NPC_s_Root_s__ob_Root_cb_', 'hkSoundPlay.NPCSabreCat', keyframes=[(0.9333333404195011, 'Attack')]))
+    # for tag in tags:
+    #     print(tags)
+
+    tags = [Tag(node='NPC_s_Root_s__ob_Root_cb_', name='hkweapon', keyframes=[(0.4, 'Swing')]), Tag(node='NPC_s_Root_s__ob_Root_cb_', name='hkHit', keyframes=[(0.5, 'Frame')]), Tag(node='NPC_s_Root_s__ob_Root_cb_', name='hkSoundPlay.NPCSabreCat', keyframes=[(0.4, 'Attack')]), Tag(node='NPC_s_Root_s__ob_Root_cb_', name='hkFoot', keyframes=[(0.6333333333333333, 'Front'), (0.8666666666666667, 'Front'), (0.7, 'Back')])]
+
+    filepath = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\resources\animation\guar\animations\attackpowerforward_short.fbx'
+    out_path = r'C:\Program Files (x86)\Steam\steamapps\common\Skyrim Special Edition\Data\resources\animation\guar\animations\test.fbx'
     # out_path = filepath.replace('.fbx', '_out.fbx')
     save_animation_tags(filepath, tags, out_path)
     tags = load_animation_tags(out_path)
